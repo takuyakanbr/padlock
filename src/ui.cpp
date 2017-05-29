@@ -20,6 +20,11 @@ namespace {
 	HINSTANCE hInst;
 	HWND hStatusWnd;
 	HWND hOptionsWnd;
+	HWND tbUnlock;
+	HWND tbLimit;
+	HWND tbLock;
+	HWND hTooltipWnd;
+
 	HFONT hFont;
 	HFONT hStatusFont;
 
@@ -56,25 +61,26 @@ namespace {
 	LRESULT CALLBACK statusWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 		switch (message) {
 		case WM_SETTINGCHANGE:
-			_Dc("uis: Setting change " << (UINT)wParam << std::endl);
+			// update status window position when work area changes
 			SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
-			SetWindowPos(hStatusWnd, NULL,
-				workArea.right - statusWndSize.right, workArea.bottom - statusWndSize.bottom,
-				0, 0, SWP_NOSIZE);
+			SetWindowPos(hStatusWnd, NULL, workArea.right - statusWndSize.right, 
+				workArea.bottom - statusWndSize.bottom, 0, 0, SWP_NOSIZE);
+			break;
+		case WM_LBUTTONUP:
+			// show options window on left click
+			if (state::isUnlocked()) {
+				ShowWindow(hOptionsWnd, SW_SHOW);
+				UpdateWindow(hOptionsWnd);
+			}
+			break;
+		case WM_RBUTTONUP:
+			// destroy window (and quit application) on right click
+			if (state::isUnlocked())
+				DestroyWindow(hWnd);
 			break;
 		case WM_PAINT:
 			_Dc("uis: Repainting" << std::endl);
 			repaintStatusWnd(hWnd);
-			break;
-		case WM_LBUTTONUP:
-			_Dc("uis: Left button up" << std::endl);
-			ShowWindow(hOptionsWnd, SW_SHOW);
-			UpdateWindow(hOptionsWnd);
-			break;
-		case WM_RBUTTONUP:
-			_Dc("uis: Right button up" << std::endl);
-			if (state::isUnlocked())
-				DestroyWindow(hWnd);
 			break;
 		case WM_DESTROY:
 			_Dc("uis: Quitting" << std::endl);
@@ -86,68 +92,59 @@ namespace {
 		return 0;
 	}
 
-	LRESULT CALLBACK tbUnlockProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam,
-		UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+	inline LRESULT CALLBACK seqTextboxProc(const int seqId, HWND hWnd, UINT message, 
+		WPARAM wParam, LPARAM lParam) {
 		switch (message) {
 		case WM_SYSKEYDOWN:
 		case WM_KEYDOWN:
 		{
-			std::string str = state::updateSequence(STATE_KEYSEQ_UNLOCKED, wParam);
+			// update the sequence, and the displayed text
+			std::string str = state::updateSequence(seqId, wParam);
 			SetWindowTextA(hWnd, str.c_str());
 			return 0;
 		}
 		case WM_CHAR:
 		case WM_DEADCHAR:
+			// catch these so that the text does not get modified
 			return 0;
+		case WM_KILLFOCUS:
+			// reset the displayed text when focus is lost
+			SetWindowTextA(hWnd, state::getSequence(seqId).c_str());
+			break;
 		case WM_LBUTTONDOWN:
-			state::notifyUpdate(STATE_KEYSEQ_UNLOCKED);
+			// when clicked: set this sequence to be updated, and clear the displayed text
+			state::notifyUpdate(seqId);
+			SetWindowTextA(hWnd, "");
 			break;
 		}
 		return DefSubclassProc(hWnd, message, wParam, lParam);
+	}
+
+	LRESULT CALLBACK tbUnlockProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam,
+		UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+		return seqTextboxProc(STATE_KEYSEQ_UNLOCKED, hWnd, message, wParam, lParam);
 	}
 
 	LRESULT CALLBACK tbLimitProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam,
 		UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
-		switch (message) {
-		case WM_SYSKEYDOWN:
-		case WM_KEYDOWN:
-		{
-			std::string str = state::updateSequence(STATE_KEYSEQ_LIMITED, wParam);
-			SetWindowTextA(hWnd, str.c_str());
-			return 0;
-		}
-		case WM_CHAR:
-		case WM_DEADCHAR:
-			return 0;
-		case WM_LBUTTONDOWN:
-			state::notifyUpdate(STATE_KEYSEQ_LIMITED);
-			break;
-		}
-		return DefSubclassProc(hWnd, message, wParam, lParam);
+		return seqTextboxProc(STATE_KEYSEQ_LIMITED, hWnd, message, wParam, lParam);
 	}
 
 	LRESULT CALLBACK tbLockProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam,
 		UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
-		switch (message) {
-		case WM_SYSKEYDOWN:
-		case WM_KEYDOWN:
-		{
-			std::string str = state::updateSequence(STATE_KEYSEQ_LOCKED, wParam);
-			SetWindowTextA(hWnd, str.c_str());
-			return 0;
-		}
-		case WM_CHAR:
-		case WM_DEADCHAR:
-			return 0;
-		case WM_LBUTTONDOWN:
-			state::notifyUpdate(STATE_KEYSEQ_LOCKED);
-			break;
-		}
-		return DefSubclassProc(hWnd, message, wParam, lParam);
+		return seqTextboxProc(STATE_KEYSEQ_LOCKED, hWnd, message, wParam, lParam);
 	}
 
 	LRESULT CALLBACK optionsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 		switch (message) {
+		case WM_MOUSEMOVE:
+			// hide tooltip if mouse moves off the textboxes
+			ShowWindow(hTooltipWnd, SW_HIDE);
+			break;
+		case WM_LBUTTONDOWN:
+			// allow focus to be taken off the textboxes
+			SetFocus(hOptionsWnd);
+			break;
 		case WM_PAINT:
 			repaintOptionsWnd(hWnd);
 			break;
@@ -223,22 +220,44 @@ namespace {
 			nullptr, nullptr, hInstance, nullptr);
 
 		// create textboxes
-		HWND tbUnlock = CreateWindowExA(WS_EX_CLIENTEDGE, "Edit",
+		tbUnlock = CreateWindowExA(WS_EX_CLIENTEDGE, "Edit",
 			state::getSequence(STATE_KEYSEQ_UNLOCKED).c_str(),
 			WS_CHILD | WS_VISIBLE, 120, 23, 270, 22, hOptionsWnd, NULL, NULL, NULL);
-		HWND tbRestrict = CreateWindowExA(WS_EX_CLIENTEDGE, "Edit",
+		tbLimit = CreateWindowExA(WS_EX_CLIENTEDGE, "Edit",
 			state::getSequence(STATE_KEYSEQ_LIMITED).c_str(),
 			WS_CHILD | WS_VISIBLE, 120, 56, 270, 22, hOptionsWnd, NULL, NULL, NULL);
-		HWND tbLock = CreateWindowExA(WS_EX_CLIENTEDGE, "Edit",
+		tbLock = CreateWindowExA(WS_EX_CLIENTEDGE, "Edit",
 			state::getSequence(STATE_KEYSEQ_LOCKED).c_str(),
 			WS_CHILD | WS_VISIBLE, 120, 88, 270, 22, hOptionsWnd, NULL, NULL, NULL);
 
 		SendMessage(tbUnlock, WM_SETFONT, (WPARAM)hFont, TRUE);
-		SendMessage(tbRestrict, WM_SETFONT, (WPARAM)hFont, TRUE);
+		SendMessage(tbLimit, WM_SETFONT, (WPARAM)hFont, TRUE);
 		SendMessage(tbLock, WM_SETFONT, (WPARAM)hFont, TRUE);
 		SetWindowSubclass(tbUnlock, tbUnlockProc, 0, 0);
-		SetWindowSubclass(tbRestrict, tbLimitProc, 0, 0);
+		SetWindowSubclass(tbLimit, tbLimitProc, 0, 0);
 		SetWindowSubclass(tbLock, tbLockProc, 0, 0);
+
+		// create tooltip window
+		hTooltipWnd = CreateWindowEx(NULL, TOOLTIPS_CLASS, NULL,
+			WS_POPUP | TTS_ALWAYSTIP,
+			CW_USEDEFAULT, CW_USEDEFAULT,
+			CW_USEDEFAULT, CW_USEDEFAULT,
+			hOptionsWnd, NULL,
+			hInst, NULL);
+
+		// add tooltip to textboxes
+		TOOLINFO toolInfo;
+		toolInfo.cbSize = sizeof(toolInfo);
+		toolInfo.hwnd = hOptionsWnd;
+		toolInfo.uId = (UINT_PTR)tbUnlock;
+		toolInfo.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+		toolInfo.lpszText = L"Left click to begin specifying a sequence "
+			"of up to 10 inputs. Click again to reset.";
+		SendMessage(hTooltipWnd, TTM_ADDTOOL, 0, (LPARAM)&toolInfo);
+		toolInfo.uId = (UINT_PTR)tbLimit;
+		SendMessage(hTooltipWnd, TTM_ADDTOOL, 0, (LPARAM)&toolInfo);
+		toolInfo.uId = (UINT_PTR)tbLock;
+		SendMessage(hTooltipWnd, TTM_ADDTOOL, 0, (LPARAM)&toolInfo);
 
 		return hOptionsWnd;
 	}
