@@ -19,6 +19,7 @@ namespace state {
 		input::KeyData unlockSeq[MAX_SEQ_LEN];
 		input::KeyData limitSeq[MAX_SEQ_LEN];
 		input::KeyData lockSeq[MAX_SEQ_LEN];
+		bool hideStatus = false;
 
 		Options() {}
 		Options(const Options&) = delete;
@@ -27,6 +28,7 @@ namespace state {
 
 	void setup();
 
+	bool isHidingStatus();
 	bool isUnlocked();
 	InputState getInputState();
 

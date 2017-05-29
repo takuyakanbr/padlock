@@ -127,6 +127,10 @@ namespace state {
 		settings::loadOptions(opts);
 	}
 
+	bool isHidingStatus() {
+		return opts.hideStatus;
+	}
+
 	bool isUnlocked() {
 		return inputState.load() == InputState::UNLOCKED;
 	}

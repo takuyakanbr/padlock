@@ -6,11 +6,12 @@ A Windows utility to block keyboard and mouse inputs.
 - Ability to customize the unlock, restrict, and lock sequences
 
 ## Using
-When Padlock is run, a small box (the *status box*) will appear at the bottom right corner of the screen.
+When Padlock is run, a small box (the *status box*) will appear at the bottom right corner of the screen,
+and a tray icon will be added to the taskbar.
 
 ##### Controls
-- Left click the status box to access the settings
-- Right click the status box to close Padlock
+- Right clicking the tray icon displays a popup menu, where you can access the settings or close Padlock
+- Alternatively, double click the tray icon to access the settings
 - Type the restrict sequence (default: **[Alt+R]**) to enter *Restricted mode*
 - Type the lock sequence (default: **[Alt+L]**) to enter *Locked mode*
 - Type the unlock sequence (default: **asdf**) to exit the two modes
@@ -19,6 +20,9 @@ When Padlock is run, a small box (the *status box*) will appear at the bottom ri
 - Default - all input allowed
 - Restricted - all input blocked, except: 0-9, A-Z, Shift, Space, Page Up, Page Down, End, Home, and arrow keys
 - Locked - all input blocked
+
+##### Settings
+- Customize the unlock, restrict, and lock sequences
 
 ##### Notes
 - Padlock is not able to block [Ctrl-Alt-Del].

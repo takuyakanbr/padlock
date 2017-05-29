@@ -1,9 +1,15 @@
 #include "stdafx.h"
 #include "Resource.h"
 #include <Commctrl.h>
+#include <shellapi.h>
 
 #include "ui.hpp"
 #include "state.hpp"
+
+#define UI_TRAYICON_UID 0x400
+#define UI_TRAYICON_MSGID 0x410
+#define UI_POPUPMENUITEM_SHOW_ID 0x05
+#define UI_POPUPMENUITEM_EXIT_ID 0x06
 
 using state::InputState;
 
@@ -12,7 +18,7 @@ namespace {
 	RECT statusWndSize = { 0, 0, 76, 18 };
 	RECT optionsWndSize = { 0, 0, 430, 175 };
 
-	const WCHAR wndTitle[] = L"Padlock";
+	WCHAR appTitle[51] = L"";
 	const WCHAR statusWndClass[] = L"pl_status";
 	const WCHAR optionsWndClass[] = L"pl_options";
 	const WCHAR *statusTexts[] = { L"Standard", L"Restricted", L"Locked" };
@@ -27,6 +33,8 @@ namespace {
 
 	HFONT hFont;
 	HFONT hStatusFont;
+
+	void createTrayIcon();
 
 	inline void repaintStatusWnd(const HWND& hWnd) {
 		PAINTSTRUCT ps;
@@ -59,37 +67,82 @@ namespace {
 
 
 	LRESULT CALLBACK statusWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+		static UINT taskbarCreatedMsgId;
+		static HMENU hMenu;
+
 		switch (message) {
+		case UI_TRAYICON_MSGID:
+
+			switch (LOWORD(lParam)) {
+			case WM_LBUTTONDBLCLK:
+				// show options window on double click
+				if (state::isUnlocked())
+					ShowWindow(hOptionsWnd, SW_SHOW);
+				break;
+			case WM_CONTEXTMENU:
+				// display popup menu at cursor position
+				{
+					POINT p;
+					GetCursorPos(&p);
+					ShowWindow(hWnd, SW_SHOW);
+					SetForegroundWindow(hWnd);
+					TrackPopupMenu(hMenu, TPM_RIGHTALIGN | TPM_BOTTOMALIGN, 
+						p.x, p.y, 0, hWnd, NULL);
+					break;
+				}
+			}
+			break;
+
+		case WM_EXITMENULOOP:
+			// hide status window when popup menu is closed, if necessary
+			if (state::isUnlocked() && state::isHidingStatus())
+				ShowWindow(hStatusWnd, SW_HIDE);
+			break;
+		case WM_COMMAND:
+			// handles selection of popup menu items
+			switch (wParam) {
+			case UI_POPUPMENUITEM_SHOW_ID:
+				if (state::isUnlocked())
+					ShowWindow(hOptionsWnd, SW_SHOW);
+				break;
+			case UI_POPUPMENUITEM_EXIT_ID:
+				if (state::isUnlocked())
+					DestroyWindow(hWnd);
+				break;
+			}
+			return 0;
 		case WM_SETTINGCHANGE:
 			// update status window position when work area changes
 			SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
 			SetWindowPos(hStatusWnd, NULL, workArea.right - statusWndSize.right, 
 				workArea.bottom - statusWndSize.bottom, 0, 0, SWP_NOSIZE);
-			break;
-		case WM_LBUTTONUP:
-			// show options window on left click
-			if (state::isUnlocked()) {
-				ShowWindow(hOptionsWnd, SW_SHOW);
-				UpdateWindow(hOptionsWnd);
-			}
-			break;
-		case WM_RBUTTONUP:
-			// destroy window (and quit application) on right click
-			if (state::isUnlocked())
-				DestroyWindow(hWnd);
+			return 0;
+		case WM_CREATE:
+			// create popup menu for tray icon
+			hMenu = CreatePopupMenu();
+			AppendMenu(hMenu, MF_STRING, UI_POPUPMENUITEM_SHOW_ID, TEXT("Settings"));
+			AppendMenu(hMenu, MF_STRING, UI_POPUPMENUITEM_EXIT_ID, TEXT("Exit"));
+
+			// receive notification when taskbar is recreated
+			taskbarCreatedMsgId = RegisterWindowMessageA("TaskbarCreated");
+
 			break;
 		case WM_PAINT:
 			_Dc("uis: Repainting" << std::endl);
 			repaintStatusWnd(hWnd);
-			break;
+			return 0;
 		case WM_DESTROY:
 			_Dc("uis: Quitting" << std::endl);
 			PostQuitMessage(0);
-			break;
-		default:
-			return DefWindowProc(hWnd, message, wParam, lParam);
+			return 0;
 		}
-		return 0;
+
+		// recreate the tray icon when taskbar is recreated
+		if (message == taskbarCreatedMsgId) {
+			createTrayIcon();
+			return 0;
+		}
+		return DefWindowProc(hWnd, message, wParam, lParam);
 	}
 
 	inline LRESULT CALLBACK seqTextboxProc(const int seqId, HWND hWnd, UINT message, 
@@ -180,7 +233,7 @@ namespace {
 
 		hStatusWnd = CreateWindowEx(
 			WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-			statusWndClass, wndTitle, WS_POPUP,
+			statusWndClass, appTitle, WS_POPUP,
 			workArea.right - statusWndSize.right, workArea.bottom - statusWndSize.bottom,
 			statusWndSize.right, statusWndSize.bottom,
 			nullptr, nullptr, hInstance, nullptr);
@@ -215,7 +268,7 @@ namespace {
 		LONG x = (workArea.right - workArea.left - optionsWndSize.right) / 2;
 		LONG y = (workArea.bottom - workArea.top - optionsWndSize.bottom) / 2;
 		hOptionsWnd = CreateWindowEx(
-			WS_EX_TOPMOST, optionsWndClass, wndTitle, WS_CAPTION | WS_SYSMENU,
+			WS_EX_TOPMOST, optionsWndClass, appTitle, WS_CAPTION | WS_SYSMENU,
 			x, y, optionsWndSize.right, optionsWndSize.bottom,
 			nullptr, nullptr, hInstance, nullptr);
 
@@ -261,11 +314,38 @@ namespace {
 
 		return hOptionsWnd;
 	}
+
+	void createTrayIcon() {
+		NOTIFYICONDATA nid = { 0 };
+		nid.cbSize = sizeof(nid);
+		nid.hWnd = hStatusWnd;
+		nid.uID = UI_TRAYICON_UID;
+		nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+		nid.uCallbackMessage = UI_TRAYICON_MSGID;
+		LoadIconMetric(hInst, MAKEINTRESOURCE(IDI_SMALL), LIM_SMALL, &(nid.hIcon));
+		std::wcscpy(nid.szTip, L"Padlock");
+		nid.uVersion = NOTIFYICON_VERSION_4;
+		Shell_NotifyIcon(NIM_ADD, &nid);
+		Shell_NotifyIcon(NIM_SETVERSION, &nid);
+	}
+
+	void deleteTrayIcon() {
+		NOTIFYICONDATA nid = { 0 };
+		nid.cbSize = sizeof(nid);
+		nid.hWnd = hStatusWnd;
+		nid.uID = UI_TRAYICON_UID;
+		Shell_NotifyIcon(NIM_DELETE, &nid);
+	}
+
 }
 
 namespace ui {
 
 	int mainLoop(HINSTANCE hInstance, int nCmdShow) {
+		std::wcscat(appTitle, APP_NAME);
+		std::wcscat(appTitle, L" v");
+		std::wcscat(appTitle, APP_VERSION);
+
 		hInst = hInstance;
 
 		hFont = CreateFont(15, 0, 0, 0, 0, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEVICE_PRECIS,
@@ -277,6 +357,7 @@ namespace ui {
 
 		if (!createStatusWindow(hInstance)) return FALSE;
 		if (!createOptionsWindow(hInstance)) return FALSE;
+		createTrayIcon();
 
 		MSG msg;
 		while (GetMessage(&msg, nullptr, 0, 0)) {
@@ -284,6 +365,7 @@ namespace ui {
 			DispatchMessage(&msg);
 		}
 
+		deleteTrayIcon();
 		DeleteObject(hStatusFont);
 		return msg.wParam;
 	}
@@ -291,5 +373,12 @@ namespace ui {
 	void redrawStatusWindow() {
 		InvalidateRect(hStatusWnd, NULL, TRUE);
 		SetWindowPos(hStatusWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+		if (state::isHidingStatus()) {
+			if (state::isUnlocked())
+				ShowWindow(hStatusWnd, SW_HIDE);
+			else
+				ShowWindow(hStatusWnd, SW_SHOW);
+		}
 	}
+
 }
