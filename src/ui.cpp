@@ -55,6 +55,13 @@ namespace {
 
 	LRESULT CALLBACK statusWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 		switch (message) {
+		case WM_SETTINGCHANGE:
+			_Dc("uis: Setting change " << (UINT)wParam << std::endl);
+			SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+			SetWindowPos(hStatusWnd, NULL,
+				workArea.right - statusWndSize.right, workArea.bottom - statusWndSize.bottom,
+				0, 0, SWP_NOSIZE);
+			break;
 		case WM_PAINT:
 			_Dc("uis: Repainting" << std::endl);
 			repaintStatusWnd(hWnd);
