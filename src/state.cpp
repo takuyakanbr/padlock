@@ -6,6 +6,13 @@
 #include "settings.hpp"
 #include "wininput\keymap.hpp"
 
+#ifdef _WINXP
+#define GETTICKCOUNT GetTickCount
+#define GTCVAR DWORD
+#else
+#define GETTICKCOUNT GetTickCount64
+#define GTCVAR ULONGLONG
+#endif
 
 namespace {
 	using namespace state;
@@ -13,7 +20,7 @@ namespace {
 	std::atomic<InputState> inputState(InputState::UNLOCKED);
 	std::atomic<EditState> editState(EditState::NONE);
 	Options opts;
-	ULONGLONG lastActive;
+	GTCVAR lastActive;
 
 	std::atomic<int> updating(0);
 	int updateIndex = 0;
@@ -29,7 +36,7 @@ namespace {
 	}
 
 	inline void changeInputState(InputState state, bool trackMods) {
-		lastActive = GetTickCount64();
+		lastActive = GETTICKCOUNT();
 		inputState.store(state);
 		input::trackModifierState(trackMods);
 		ui::updateStatusWindow();
@@ -41,7 +48,7 @@ namespace {
 		case InputState::UNLOCKED:
 			if (opts.autoLock > 0) {
 				// autolock check
-				ULONGLONG now = GetTickCount64();
+				GTCVAR now = GETTICKCOUNT();
 				if (now - lastActive > opts.autoLock * 60000ULL) {
 					changeInputState(InputState::LOCKED, true);
 				}
@@ -70,7 +77,7 @@ namespace {
 		if (inputState.load() == InputState::UNLOCKED) {
 			if (opts.autoLock > 0 && data.code != WM_MOUSEMOVE) {
 				// autolock check
-				ULONGLONG now = GetTickCount64();
+				GTCVAR now = GETTICKCOUNT();
 				if (now - lastActive > opts.autoLock * 60000ULL) {
 					changeInputState(InputState::LOCKED, true);
 				}
@@ -144,7 +151,7 @@ namespace {
 namespace state {
 
 	void setup() {
-		lastActive = GetTickCount64();
+		lastActive = GETTICKCOUNT();
 
 		// defaults
 		opts.unlockSeq[0] = { 0x41, false, false, false, 3 }; // asdf

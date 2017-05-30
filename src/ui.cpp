@@ -21,7 +21,7 @@ namespace {
 	WCHAR appTitle[51] = L"";
 	const WCHAR statusWndClass[] = L"pl_status";
 	const WCHAR optionsWndClass[] = L"pl_options";
-	const WCHAR *statusTexts[] = { L"Standard", L"Restricted", L"Locked" };
+	const WCHAR *statusTexts[] = { L"Default", L"Restricted", L"Locked" };
 	const WCHAR *statusModeOptions[] = { L"Always show", L"Hide when unlocked", L"Always hide" };
 
 	HINSTANCE hInst;
@@ -375,11 +375,17 @@ namespace {
 		nid.cbSize = sizeof(nid);
 		nid.hWnd = hStatusWnd;
 		nid.uID = UI_TRAYICON_UID;
-		nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
 		nid.uCallbackMessage = UI_TRAYICON_MSGID;
-		LoadIconMetric(hInst, MAKEINTRESOURCE(IDI_SMALL), LIM_SMALL, &(nid.hIcon));
 		std::wcscpy(nid.szTip, L"Padlock");
+#ifdef _WINXP
+		nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+		nid.hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_SMALL));
+		nid.uVersion = NOTIFYICON_VERSION;
+#else
+		nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+		LoadIconMetric(hInst, MAKEINTRESOURCE(IDI_SMALL), LIM_SMALL, &(nid.hIcon));
 		nid.uVersion = NOTIFYICON_VERSION_4;
+#endif
 		Shell_NotifyIcon(NIM_ADD, &nid);
 		Shell_NotifyIcon(NIM_SETVERSION, &nid);
 	}

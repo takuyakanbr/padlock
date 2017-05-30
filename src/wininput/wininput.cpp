@@ -231,8 +231,9 @@ namespace {
 	// the main function of the internal wininput thread
 	DWORD WINAPI _main(LPVOID lpParam) {
 		_D("WinInput thread started." << std::endl);
-		HHOOK keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, lowLevelKeyboardProc, NULL, 0);
-		HHOOK mouseHook = SetWindowsHookEx(WH_MOUSE_LL, lowLevelMouseProc, NULL, 0);
+		HINSTANCE hInst = GetModuleHandle(NULL);
+		HHOOK keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, lowLevelKeyboardProc, hInst, 0);
+		HHOOK mouseHook = SetWindowsHookEx(WH_MOUSE_LL, lowLevelMouseProc, hInst, 0);
 
 		BOOL bRet;
 		MSG msg;
