@@ -16,12 +16,13 @@ using state::InputState;
 namespace {
 	RECT workArea;
 	RECT statusWndSize = { 0, 0, 76, 18 };
-	RECT optionsWndSize = { 0, 0, 430, 175 };
+	RECT optionsWndSize = { 0, 0, 430, 239 };
 
 	WCHAR appTitle[51] = L"";
 	const WCHAR statusWndClass[] = L"pl_status";
 	const WCHAR optionsWndClass[] = L"pl_options";
 	const WCHAR *statusTexts[] = { L"Standard", L"Restricted", L"Locked" };
+	const WCHAR *statusModeOptions[] = { L"Always show", L"Hide when unlocked", L"Always hide" };
 
 	HINSTANCE hInst;
 	HWND hStatusWnd;
@@ -29,12 +30,15 @@ namespace {
 	HWND tbUnlock;
 	HWND tbLimit;
 	HWND tbLock;
+	HWND tbAutoLock;
+	HWND cbStatusMode;
 	HWND hTooltipWnd;
 
 	HFONT hFont;
 	HFONT hStatusFont;
 
 	void createTrayIcon();
+	void showStatusWindow();
 
 	inline void repaintStatusWnd(const HWND& hWnd) {
 		PAINTSTRUCT ps;
@@ -60,6 +64,8 @@ namespace {
 		TextOut(hdc, 22, 26, L"Unlock sequence:", 16);
 		TextOut(hdc, 22, 59, L"Restrict sequence:", 18);
 		TextOut(hdc, 22, 91, L"Lock sequence:", 14);
+		TextOut(hdc, 22, 123, L"Autolock (minutes):", 19);
+		TextOut(hdc, 22, 155, L"Status box:", 11);
 
 		SelectObject(hdc, hOldFont);
 		EndPaint(hWnd, &ps);
@@ -95,7 +101,7 @@ namespace {
 
 		case WM_EXITMENULOOP:
 			// hide status window when popup menu is closed, if necessary
-			if (state::isUnlocked() && state::isHidingStatus())
+			if (state::isUnlocked() && state::getStatusMode() != STATE_STATUS_SHOWALWAYS)
 				ShowWindow(hStatusWnd, SW_HIDE);
 			break;
 		case WM_COMMAND:
@@ -166,7 +172,7 @@ namespace {
 			break;
 		case WM_LBUTTONDOWN:
 			// when clicked: set this sequence to be updated, and clear the displayed text
-			state::notifyUpdate(seqId);
+			state::notifyInputUpdate(seqId);
 			SetWindowTextA(hWnd, "");
 			break;
 		}
@@ -191,20 +197,29 @@ namespace {
 	LRESULT CALLBACK optionsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 		switch (message) {
 		case WM_MOUSEMOVE:
-			// hide tooltip if mouse moves off the textboxes
+			// hide tooltip if mouse moves off the controls
 			ShowWindow(hTooltipWnd, SW_HIDE);
 			break;
 		case WM_LBUTTONDOWN:
-			// allow focus to be taken off the textboxes
+			// allow focus to be taken off the controls
 			SetFocus(hOptionsWnd);
 			break;
 		case WM_PAINT:
 			repaintOptionsWnd(hWnd);
 			break;
 		case WM_CLOSE:
-			state::notifyUpdate(STATE_KEYSEQ_NONE);
+		{
+			// update state, save settings, and hide window
+			CHAR arr[10];
+			GetWindowTextA(tbAutoLock, arr, 10);
+			SetWindowTextA(tbAutoLock, state::setAutoLock(arr).c_str());
+			int index = (int)SendMessage(cbStatusMode, CB_GETCURSEL, NULL, NULL);
+			SendMessage(cbStatusMode, CB_SETCURSEL, (WPARAM)state::setStatusMode(index), (LPARAM)0);
+			showStatusWindow();
+			state::notifyInputUpdate(STATE_KEYSEQ_NONE);
 			ShowWindow(hWnd, SW_HIDE);
 			break;
+		}
 		default:
 			return DefWindowProc(hWnd, message, wParam, lParam);
 		}
@@ -240,8 +255,7 @@ namespace {
 
 		if (!hStatusWnd) return false;
 
-		ShowWindow(hStatusWnd, SW_SHOWNORMAL);
-		UpdateWindow(hStatusWnd);
+		showStatusWindow();
 
 		return true;
 	}
@@ -272,7 +286,7 @@ namespace {
 			x, y, optionsWndSize.right, optionsWndSize.bottom,
 			nullptr, nullptr, hInstance, nullptr);
 
-		// create textboxes
+		// create controls
 		tbUnlock = CreateWindowExA(WS_EX_CLIENTEDGE, "Edit",
 			state::getSequence(STATE_KEYSEQ_UNLOCKED).c_str(),
 			WS_CHILD | WS_VISIBLE, 120, 23, 270, 22, hOptionsWnd, NULL, NULL, NULL);
@@ -282,10 +296,25 @@ namespace {
 		tbLock = CreateWindowExA(WS_EX_CLIENTEDGE, "Edit",
 			state::getSequence(STATE_KEYSEQ_LOCKED).c_str(),
 			WS_CHILD | WS_VISIBLE, 120, 88, 270, 22, hOptionsWnd, NULL, NULL, NULL);
+		tbAutoLock = CreateWindowExA(WS_EX_CLIENTEDGE, "Edit",
+			state::getAutoLock().c_str(), WS_CHILD | WS_VISIBLE,
+			120, 120, 270, 22, hOptionsWnd, NULL, NULL, NULL);
+		cbStatusMode = CreateWindowA("ComboBox", "",
+			CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE,
+			120, 152, 270, 22, hOptionsWnd, NULL, NULL, NULL);
+		SendMessage(cbStatusMode, CB_ADDSTRING, NULL, (LPARAM)statusModeOptions[0]);
+		SendMessage(cbStatusMode, CB_ADDSTRING, NULL, (LPARAM)statusModeOptions[1]);
+		SendMessage(cbStatusMode, CB_ADDSTRING, NULL, (LPARAM)statusModeOptions[2]);
+		SendMessage(cbStatusMode, CB_SETCURSEL, (WPARAM)state::getStatusMode(), (LPARAM)0);
 
+		// use default system font for controls
 		SendMessage(tbUnlock, WM_SETFONT, (WPARAM)hFont, TRUE);
 		SendMessage(tbLimit, WM_SETFONT, (WPARAM)hFont, TRUE);
 		SendMessage(tbLock, WM_SETFONT, (WPARAM)hFont, TRUE);
+		SendMessage(tbAutoLock, WM_SETFONT, (WPARAM)hFont, TRUE);
+		SendMessage(cbStatusMode, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+		// attach callback function to sequence textboxes
 		SetWindowSubclass(tbUnlock, tbUnlockProc, 0, 0);
 		SetWindowSubclass(tbLimit, tbLimitProc, 0, 0);
 		SetWindowSubclass(tbLock, tbLockProc, 0, 0);
@@ -298,7 +327,7 @@ namespace {
 			hOptionsWnd, NULL,
 			hInst, NULL);
 
-		// add tooltip to textboxes
+		// add tooltip to controls
 		TOOLINFO toolInfo;
 		toolInfo.cbSize = sizeof(toolInfo);
 		toolInfo.hwnd = hOptionsWnd;
@@ -312,7 +341,33 @@ namespace {
 		toolInfo.uId = (UINT_PTR)tbLock;
 		SendMessage(hTooltipWnd, TTM_ADDTOOL, 0, (LPARAM)&toolInfo);
 
+		toolInfo.lpszText = L"Time (in minutes) of inactivity before automatically "
+			"locking. Set to 0 to disable this feature.";
+		toolInfo.uId = (UINT_PTR)tbAutoLock;
+		SendMessage(hTooltipWnd, TTM_ADDTOOL, 0, (LPARAM)&toolInfo);
+
+		toolInfo.lpszText = L"Select when the status box should be displayed.";
+		toolInfo.uId = (UINT_PTR)cbStatusMode;
+		SendMessage(hTooltipWnd, TTM_ADDTOOL, 0, (LPARAM)&toolInfo);
+
 		return hOptionsWnd;
+	}
+
+	void showStatusWindow() {
+		switch (state::getStatusMode()) {
+		case STATE_STATUS_SHOWALWAYS:
+			ShowWindow(hStatusWnd, SW_SHOW);
+			break;
+		case STATE_STATUS_HIDEWHENUNLOCKED:
+			if (state::isUnlocked())
+				ShowWindow(hStatusWnd, SW_HIDE);
+			else
+				ShowWindow(hStatusWnd, SW_SHOW);
+		case STATE_STATUS_HIDEALWAYS:
+			ShowWindow(hStatusWnd, SW_HIDE);
+			break;
+		}
+
 	}
 
 	void createTrayIcon() {
@@ -370,10 +425,12 @@ namespace ui {
 		return msg.wParam;
 	}
 
-	void redrawStatusWindow() {
+	void updateStatusWindow() {
 		InvalidateRect(hStatusWnd, NULL, TRUE);
 		SetWindowPos(hStatusWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-		if (state::isHidingStatus()) {
+
+		// update visibility of status window if necessary
+		if (state::getStatusMode() == STATE_STATUS_HIDEWHENUNLOCKED) {
 			if (state::isUnlocked())
 				ShowWindow(hStatusWnd, SW_HIDE);
 			else

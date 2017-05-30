@@ -13,14 +13,42 @@ namespace {
 	std::atomic<InputState> inputState(InputState::UNLOCKED);
 	std::atomic<EditState> editState(EditState::NONE);
 	Options opts;
+	ULONGLONG lastActive;
 
 	std::atomic<int> updating(0);
 	int updateIndex = 0;
 
+	// intentionally naive conversion, returns 0 if no conversion can be made
+	int nstoi(const char *p) {
+		int x = 0;
+		while (*p >= '0' && *p <= '9') {
+			x = (x * 10) + (*p - '0');
+			++p;
+		}
+		return x;
+	}
+
+	inline void changeInputState(InputState state, bool trackMods) {
+		lastActive = GetTickCount64();
+		inputState.store(state);
+		input::trackModifierState(trackMods);
+		ui::updateStatusWindow();
+	}
+
 	bool keyHandler(input::KeyData& data) {
 		switch (inputState.load()) {
+
 		case InputState::UNLOCKED:
+			if (opts.autoLock > 0) {
+				// autolock check
+				ULONGLONG now = GetTickCount64();
+				if (now - lastActive > opts.autoLock * 60000ULL) {
+					changeInputState(InputState::LOCKED, true);
+				}
+				lastActive = now;
+			}
 			return false;
+
 		case InputState::LIMITED:
 			if (!data.ctrl && !data.alt) {
 				// allow shift, 0-9, A-Z, various navigation keys
@@ -28,6 +56,7 @@ namespace {
 				if (data.code >= 0x30 && data.code <= 0x5A) return false;
 				if (data.code >= VK_SPACE && data.code <= VK_DOWN) return false;
 			}
+
 		case InputState::LOCKED:
 			// allow ctrl, shift, alt keyup
 			if (data.type == INPUT_TYPE_KEYUP 
@@ -38,16 +67,26 @@ namespace {
 
 	// if Limited/Locked -> block all mouse input
 	bool mouseHandler(input::MouseData& data) {
-		return inputState.load() != InputState::UNLOCKED;
+		if (inputState.load() == InputState::UNLOCKED) {
+			if (opts.autoLock > 0 && data.code != WM_MOUSEMOVE) {
+				// autolock check
+				ULONGLONG now = GetTickCount64();
+				if (now - lastActive > opts.autoLock * 60000ULL) {
+					changeInputState(InputState::LOCKED, true);
+				}
+				lastActive = now;
+			}
+			return false;
+		} else {
+			return true;
+		}
 	}
 
 	// if Limited/Locked -> set to Unlocked
 	bool unlockSeqHandler() {
 		_Dc("state: Unlock sequence" << std::endl);
 		if (inputState.load() != InputState::UNLOCKED) {
-			inputState.store(InputState::UNLOCKED);
-			input::trackModifierState(false);
-			ui::redrawStatusWindow();
+			changeInputState(InputState::UNLOCKED, false);
 			return true;
 		}
 		return false;
@@ -57,9 +96,7 @@ namespace {
 	bool limitSeqHandler() {
 		_Dc("state: Limit sequence" << std::endl);
 		if (inputState.load() == InputState::UNLOCKED && updating.load() == 0) {
-			inputState.store(InputState::LIMITED);
-			input::trackModifierState(true);
-			ui::redrawStatusWindow();
+			changeInputState(InputState::LIMITED, true);
 			return true;
 		}
 		return false;
@@ -69,14 +106,13 @@ namespace {
 	bool lockSeqHandler() {
 		_Dc("state: Lock sequence" << std::endl);
 		if (inputState.load() != InputState::LOCKED && updating.load() == 0) {
-			inputState.store(InputState::LOCKED);
-			input::trackModifierState(true);
-			ui::redrawStatusWindow();
+			changeInputState(InputState::LOCKED, true);
 			return true;
 		}
 		return false;
 	}
 
+	// return the string representation of the given sequence
 	std::string getSequenceText(const input::KeyData *seq) {
 		std::string str;
 		for (int i = 0; i < Options::MAX_SEQ_LEN; i++) {
@@ -108,6 +144,8 @@ namespace {
 namespace state {
 
 	void setup() {
+		lastActive = GetTickCount64();
+
 		// defaults
 		opts.unlockSeq[0] = { 0x41, false, false, false, 3 }; // asdf
 		opts.unlockSeq[1] = { 0x53, false, false, false, 3 };
@@ -127,8 +165,26 @@ namespace state {
 		settings::loadOptions(opts);
 	}
 
-	bool isHidingStatus() {
-		return opts.hideStatus;
+	std::string getAutoLock() {
+		return std::to_string(opts.autoLock);
+	}
+
+	int getStatusMode() {
+		return opts.statusMode;
+	}
+
+	std::string setAutoLock(std::string val) {
+		opts.autoLock = nstoi(val.c_str());
+		return std::to_string(opts.autoLock);
+	}
+
+	int setStatusMode(int mode) {
+		opts.statusMode = mode;
+		if (opts.statusMode < 0)
+			opts.statusMode = 0;
+		if (opts.statusMode > STATE_STATUS_MAXVALUE)
+			opts.statusMode = STATE_STATUS_MAXVALUE;
+		return opts.statusMode;
 	}
 
 	bool isUnlocked() {
@@ -139,11 +195,11 @@ namespace state {
 		return inputState.load();
 	}
 
-	void notifyUpdate(int type) {
+	void notifyInputUpdate(int type) {
 		updating.store(type);
 		updateIndex = 0;
 
-		if (type == 0)
+		if (type == STATE_KEYSEQ_NONE)
 			settings::saveOptions(opts);
 	}
 

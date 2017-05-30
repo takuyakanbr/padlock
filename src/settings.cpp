@@ -13,6 +13,16 @@
 namespace {
 	std::map<std::string, std::string> iniData;
 
+	// intentionally naive conversion, returns 0 if no conversion can be made
+	int nstoi(const char *p) {
+		int x = 0;
+		while (*p >= '0' && *p <= '9') {
+			x = (x * 10) + (*p - '0');
+			++p;
+		}
+		return x;
+	}
+
 	void loadSeq(const char *name, input::KeyData *seq) {
 		if (iniData.find(name) == iniData.end()) return;
 
@@ -100,6 +110,10 @@ namespace settings {
 		loadSeq("useq", opts.unlockSeq);
 		loadSeq("rseq", opts.limitSeq);
 		loadSeq("lseq", opts.lockSeq);
+		opts.autoLock = nstoi(iniData["alock"].c_str());
+		opts.statusMode = nstoi(iniData["smode"].c_str());
+		if (opts.statusMode > STATE_STATUS_MAXVALUE)
+			opts.statusMode = STATE_STATUS_MAXVALUE;
 
 		return true;
 	}
@@ -108,6 +122,8 @@ namespace settings {
 		saveSeq("useq", opts.unlockSeq);
 		saveSeq("rseq", opts.limitSeq);
 		saveSeq("lseq", opts.lockSeq);
+		iniData["alock"] = std::to_string(opts.autoLock);
+		iniData["smode"] = std::to_string(opts.statusMode);
 		return saveData();
 	}
 }
