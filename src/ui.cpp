@@ -37,7 +37,7 @@ namespace {
 	HFONT hFont;
 	HFONT hStatusFont;
 
-	void createTrayIcon();
+	void createTrayIcon(bool update = false);
 	void showStatusWindow();
 
 	inline void repaintStatusWnd(const HWND& hWnd) {
@@ -237,12 +237,12 @@ namespace {
 		wcex.cbClsExtra = 0;
 		wcex.cbWndExtra = 0;
 		wcex.hInstance = hInstance;
-		wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_PADLOCK));
+		wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_DEFAULT));
 		wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
 		wcex.hbrBackground = CreateSolidBrush(RGB(210, 210, 210));
 		wcex.lpszMenuName = NULL;
 		wcex.lpszClassName = statusWndClass;
-		wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
+		wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_DEFAULT));
 
 		if (!RegisterClassExW(&wcex)) return false;
 
@@ -270,12 +270,12 @@ namespace {
 		wcex.cbClsExtra = 0;
 		wcex.cbWndExtra = 0;
 		wcex.hInstance = hInstance;
-		wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_PADLOCK));
+		wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_DEFAULT));
 		wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
 		wcex.hbrBackground = CreateSolidBrush(RGB(225, 225, 225));
 		wcex.lpszMenuName = NULL;
 		wcex.lpszClassName = optionsWndClass;
-		wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
+		wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_DEFAULT));
 
 		if (!RegisterClassExW(&wcex)) return false;
 
@@ -370,7 +370,7 @@ namespace {
 
 	}
 
-	void createTrayIcon() {
+	void createTrayIcon(bool update) {
 		NOTIFYICONDATA nid = { 0 };
 		nid.cbSize = sizeof(nid);
 		nid.hWnd = hStatusWnd;
@@ -379,15 +379,39 @@ namespace {
 		std::wcscpy(nid.szTip, L"Padlock");
 #ifdef _WINXP
 		nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
-		nid.hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_SMALL));
+		switch (state::getInputState()) {
+			case state::InputState::UNLOCKED:
+				nid.hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_DEFAULT));
+				break;
+			case state::InputState::LIMITED:
+				nid.hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_RESTRICTED));
+				break;
+			case state::InputState::LOCKED:
+				nid.hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_LOCKED));
+				break;
+		}
 		nid.uVersion = NOTIFYICON_VERSION;
 #else
 		nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
-		LoadIconMetric(hInst, MAKEINTRESOURCE(IDI_SMALL), LIM_SMALL, &(nid.hIcon));
+		switch (state::getInputState()) {
+		case state::InputState::UNLOCKED:
+			LoadIconMetric(hInst, MAKEINTRESOURCE(IDI_DEFAULT), LIM_SMALL, &(nid.hIcon));
+			break;
+		case state::InputState::LIMITED:
+			LoadIconMetric(hInst, MAKEINTRESOURCE(IDI_RESTRICTED), LIM_SMALL, &(nid.hIcon));
+			break;
+		case state::InputState::LOCKED:
+			LoadIconMetric(hInst, MAKEINTRESOURCE(IDI_LOCKED), LIM_SMALL, &(nid.hIcon));
+			break;
+		}
 		nid.uVersion = NOTIFYICON_VERSION_4;
 #endif
-		Shell_NotifyIcon(NIM_ADD, &nid);
-		Shell_NotifyIcon(NIM_SETVERSION, &nid);
+		if (update)
+			Shell_NotifyIcon(NIM_MODIFY, &nid);
+		else {
+			Shell_NotifyIcon(NIM_ADD, &nid);
+			Shell_NotifyIcon(NIM_SETVERSION, &nid);
+		}
 	}
 
 	void deleteTrayIcon() {
@@ -432,6 +456,7 @@ namespace ui {
 	}
 
 	void updateStatusWindow() {
+		createTrayIcon(true);
 		InvalidateRect(hStatusWnd, NULL, TRUE);
 		SetWindowPos(hStatusWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 

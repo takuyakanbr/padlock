@@ -15,7 +15,7 @@
 #include <iostream>
 
 #define APP_NAME L"Padlock"
-#define APP_VERSION L"1.11"
+#define APP_VERSION L"1.12"
 
 //#define _PADLOCK_DEBUG
 

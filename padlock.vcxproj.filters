@@ -69,10 +69,13 @@
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="small.ico">
+    <Image Include="lock_default.ico">
       <Filter>Resource Files</Filter>
     </Image>
-    <Image Include="padlock.ico">
+    <Image Include="lock_restricted.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="lock_locked.ico">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>

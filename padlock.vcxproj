@@ -253,8 +253,9 @@
     <ResourceCompile Include="padlock.rc" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="padlock.ico" />
-    <Image Include="small.ico" />
+    <Image Include="lock_default.ico" />
+    <Image Include="lock_locked.ico" />
+    <Image Include="lock_restricted.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
